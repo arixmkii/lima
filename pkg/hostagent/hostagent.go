@@ -484,7 +484,8 @@ func forwardSSH(ctx context.Context, sshConfig *ssh.SSHConfig, port int, local, 
 		"127.0.0.1",
 		"--",
 	)
-	if strings.HasPrefix(local, "/") {
+	// XXX windows workaround
+	if strings.HasPrefix(local, "/") || strings.HasPrefix(local, "c:\\") || strings.HasPrefix(local, "C:\\") {
 		switch verb {
 		case verbForward:
 			if reverse {
@@ -515,7 +516,7 @@ func forwardSSH(ctx context.Context, sshConfig *ssh.SSHConfig, port int, local, 
 	}
 	cmd := exec.CommandContext(ctx, sshConfig.Binary(), args...)
 	if out, err := cmd.Output(); err != nil {
-		if verb == verbForward && strings.HasPrefix(local, "/") {
+		if verb == verbForward && (strings.HasPrefix(local, "/") || strings.HasPrefix(local, "c:\\") || strings.HasPrefix(local, "C:\\")) {
 			logrus.WithError(err).Warnf("Failed to set up forward from %q (guest) to %q (host)", remote, local)
 			if removeErr := os.RemoveAll(local); err != nil {
 				logrus.WithError(removeErr).Warnf("Failed to clean up %q (host) after forwarding failed", local)
