@@ -169,7 +169,7 @@ func CommonOpts(useDotSSH bool) ([]string, error) {
 
 	opts = append(opts,
 		"StrictHostKeyChecking=no",
-		"UserKnownHostsFile=/dev/null",
+		"UserKnownHostsFile=" + os.DevNull,
 		"NoHostAuthenticationForLocalhost=yes",
 		"GSSAPIAuthentication=no",
 		"PreferredAuthentications=publickey",
@@ -233,9 +233,9 @@ func SSHOpts(instDir string, useDotSSH, forwardAgent bool, forwardX11 bool, forw
 }
 
 // SSHArgsFromOpts returns ssh args from opts.
-// The result always contains {"-F", "/dev/null} in addition to {"-o", "KEY=VALUE", ...}.
+// The result always contains {"-F", os.DevNull} in addition to {"-o", "KEY=VALUE", ...}.
 func SSHArgsFromOpts(opts []string) []string {
-	args := []string{"-F", "/dev/null"}
+	args := []string{"-F", os.DevNull}
 	for _, o := range opts {
 		args = append(args, "-o", o)
 	}
