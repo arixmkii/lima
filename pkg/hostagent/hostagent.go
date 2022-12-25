@@ -514,6 +514,7 @@ func forwardSSH(ctx context.Context, sshConfig *ssh.SSHConfig, port int, local, 
 			panic(fmt.Errorf("invalid verb %q", verb))
 		}
 	}
+	logrus.Debugf("!!! Executing SSH %q %v", sshConfig.Binary(), args)
 	cmd := exec.CommandContext(ctx, sshConfig.Binary(), args...)
 	if out, err := cmd.Output(); err != nil {
 		if verb == verbForward && (strings.HasPrefix(local, "/") || strings.HasPrefix(local, "c:\\") || strings.HasPrefix(local, "C:\\")) {
