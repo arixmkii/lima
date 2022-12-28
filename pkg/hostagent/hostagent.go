@@ -313,6 +313,7 @@ func (a *HostAgent) startHostAgentRoutines(ctx context.Context) error {
 		}
 		return nil
 	})
+	a.sshConfig.AdditionalArgs = append(a.sshConfig.AdditionalArgs, "-O", "proxy")
 	var mErr error
 	if err := a.waitForRequirements(ctx, "essential", a.essentialRequirements()); err != nil {
 		mErr = multierror.Append(mErr, err)
@@ -462,8 +463,10 @@ const (
 	verbCancel  = "cancel"
 )
 
-func forwardSSH(ctx context.Context, sshConfig *ssh.SSHConfig, port int, local, remote string, verb string, reverse bool) error {
+func forwardSSH(ctx context.Context, sshConfig *ssh.SSHConfig, port int, local string, remote string, verb string, reverse bool) error {
 	args := sshConfig.Args()
+	// XXX hacks
+	args = args[:len(args) - 2]
 	args = append(args,
 		"-T",
 		"-O", verb,

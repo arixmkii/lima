@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -117,6 +118,24 @@ var sshInfo struct {
 	openSSHVersion semver.Version
 }
 
+func call(args []string) (string, error) {
+	cmd := exec.Command(args[0], args[1:]...)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func toCygpath(p string) string {
+	if runtime.GOOS == "windows" {
+		dp, _ := call([]string{"cygpath", "-d", p})
+		cp, _ := call([]string{"cygpath", "-u", dp})
+		return cp
+	}
+	return p
+}
+
 // CommonOpts returns ssh option key-value pairs like {"IdentityFile=/path/to/id_foo"}.
 // The result may contain different values with the same key.
 //
@@ -132,7 +151,7 @@ func CommonOpts(useDotSSH bool) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	opts := []string{"IdentityFile=\"" + privateKeyPath + "\""}
+	opts := []string{"IdentityFile=\"" + toCygpath(privateKeyPath) + "\""}
 
 	// Append all private keys corresponding to ~/.ssh/*.pub to keep old instances working
 	// that had been created before lima started using an internal identity.
@@ -163,7 +182,7 @@ func CommonOpts(useDotSSH bool) ([]string, error) {
 				// Fail on permission-related and other path errors
 				return nil, err
 			}
-			opts = append(opts, "IdentityFile=\""+privateKeyPath+"\"")
+			opts = append(opts, "IdentityFile=\""+toCygpath(privateKeyPath)+"\"")
 		}
 	}
 
@@ -201,7 +220,7 @@ func CommonOpts(useDotSSH bool) ([]string, error) {
 }
 
 // SSHOpts adds the following options to CommonOptions: User, ControlMaster, ControlPath, ControlPersist
-func SSHOpts(instDir string, useDotSSH, forwardAgent bool, forwardX11 bool, forwardX11Trusted bool) ([]string, error) {
+func SSHOpts(instDir string, useDotSSH bool, forwardAgent bool, forwardX11 bool, forwardX11Trusted bool) ([]string, error) {
 	controlSock := filepath.Join(instDir, filenames.SSHSock)
 	if len(controlSock) >= osutil.UnixPathMax {
 		return nil, fmt.Errorf("socket path %q is too long: >= UNIX_PATH_MAX=%d", controlSock, osutil.UnixPathMax)
@@ -216,9 +235,8 @@ func SSHOpts(instDir string, useDotSSH, forwardAgent bool, forwardX11 bool, forw
 	}
 	opts = append(opts,
 		fmt.Sprintf("User=%s", u.Username), // guest and host have the same username, but we should specify the username explicitly (#85)
-		"ControlMaster=auto",
-		fmt.Sprintf("ControlPath=\"%s\"", controlSock),
-		"ControlPersist=5m",
+		"ControlMaster=no",
+		fmt.Sprintf("ControlPath=\"%s\"", toCygpath(controlSock)),
 	)
 	if forwardAgent {
 		opts = append(opts, "ForwardAgent=yes")
@@ -243,7 +261,7 @@ func SSHArgsFromOpts(opts []string) []string {
 }
 
 func ParseOpenSSHVersion(version []byte) *semver.Version {
-	regex := regexp.MustCompile(`^OpenSSH_(\d+\.\d+)(?:p(\d+))?\b`)
+	regex := regexp.MustCompile(`^OpenSSH(?:_for_Windows)?_(\d+\.\d+)(?:p(\d+))?\b`)
 	matches := regex.FindSubmatch(version)
 	if len(matches) == 3 {
 		if len(matches[2]) == 0 {

@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"runtime"
 
 	"github.com/lima-vm/lima/pkg/httputil"
 )
@@ -19,8 +20,11 @@ import (
 // NewHTTPClientWithSocketPath creates a client.
 // socketPath is a path to the UNIX socket, without unix:// prefix.
 func NewHTTPClientWithSocketPath(socketPath string) (*http.Client, error) {
-	if _, err := os.Stat(socketPath); err != nil {
-		return nil, err
+	// https://github.com/golang/go/issues/33357#issuecomment-1133411792
+	if runtime.GOOS != "windows" {
+		if _, err := os.Stat(socketPath); err != nil {
+			return nil, err
+		}
 	}
 	hc := &http.Client{
 		Transport: &http.Transport{

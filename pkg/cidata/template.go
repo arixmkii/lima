@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"path"
+	"path/filepath"
 
 	"github.com/lima-vm/lima/pkg/iso9660util"
 
@@ -93,7 +93,7 @@ func ValidateTemplateArgs(args TemplateArgs) error {
 	}
 	for i, m := range args.Mounts {
 		f := m.MountPoint
-		if !path.IsAbs(f) {
+		if !filepath.IsAbs(f) {
 			return fmt.Errorf("field mounts[%d] must be absolute, got %q", i, f)
 		}
 	}
