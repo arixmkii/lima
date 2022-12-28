@@ -2,13 +2,16 @@ package sshutil
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -119,6 +122,44 @@ var sshInfo struct {
 	openSSHVersion semver.Version
 }
 
+func call(args []string, env []string) (string, error) {
+	cmd := exec.Command(args[0], args[1:]...)
+	if (env != nil) {
+		cmd.Env = append(cmd.Env, env...)
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	logrus.Debugf("Executing command: %v", cmd.Args)
+	out, err := cmd.Output()
+	logrus.Debugf("%q (%v) exited: stdout=%q, stderr=%q, err=%v", args[0], cmd.Args, string(out), stderr.String(), err)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func toCygpath(p string) string {
+	if runtime.GOOS == "windows" {
+		cp, _ := call([]string{"cygpath", "-u", p}, nil)
+		cd := path.Dir(cp)
+		cf := path.Base(cp)
+		h := sha256.New()
+		h.Write([]byte(cd))
+		sha256_hash := hex.EncodeToString(h.Sum(nil))
+		td := path.Join("/tmp", sha256_hash)
+		_, err := call([]string{"test", "-d", td}, nil)
+		if err == nil {
+			return path.Join(td, cf)
+		}
+		_, err = call([]string{"ln", "-s", cd, td}, []string{"MSYS=winsymlinks:nativestrict"})
+		if err == nil {
+			return path.Join(td, cf)
+		}
+		return cp
+	}
+	return p
+}
+
 // CommonOpts returns ssh option key-value pairs like {"IdentityFile=/path/to/id_foo"}.
 // The result may contain different values with the same key.
 //
@@ -134,7 +175,7 @@ func CommonOpts(useDotSSH bool) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	opts := []string{"IdentityFile=\"" + privateKeyPath + "\""}
+	opts := []string{"IdentityFile=" + toCygpath(privateKeyPath) + ""}
 
 	// Append all private keys corresponding to ~/.ssh/*.pub to keep old instances working
 	// that had been created before lima started using an internal identity.
@@ -165,7 +206,7 @@ func CommonOpts(useDotSSH bool) ([]string, error) {
 				// Fail on permission-related and other path errors
 				return nil, err
 			}
-			opts = append(opts, "IdentityFile=\""+privateKeyPath+"\"")
+			opts = append(opts, "IdentityFile="+toCygpath(privateKeyPath)+"")
 		}
 	}
 
@@ -193,10 +234,10 @@ func CommonOpts(useDotSSH bool) ([]string, error) {
 		// We prioritize AES algorithms when AES accelerator is available.
 		if sshInfo.aesAccelerated {
 			logrus.Debugf("AES accelerator seems available, prioritizing aes128-gcm@openssh.com and aes256-gcm@openssh.com")
-			opts = append(opts, "Ciphers=\"^aes128-gcm@openssh.com,aes256-gcm@openssh.com\"")
+			opts = append(opts, "Ciphers=^aes128-gcm@openssh.com,aes256-gcm@openssh.com")
 		} else {
 			logrus.Debugf("AES accelerator does not seem available, prioritizing chacha20-poly1305@openssh.com")
-			opts = append(opts, "Ciphers=\"^chacha20-poly1305@openssh.com\"")
+			opts = append(opts, "Ciphers=^chacha20-poly1305@openssh.com")
 		}
 	}
 	return opts, nil
@@ -218,9 +259,8 @@ func SSHOpts(instDir string, useDotSSH, forwardAgent bool, forwardX11 bool, forw
 	}
 	opts = append(opts,
 		fmt.Sprintf("User=%s", u.Username), // guest and host have the same username, but we should specify the username explicitly (#85)
-		"ControlMaster=auto",
-		fmt.Sprintf("ControlPath=\"%s\"", controlSock),
-		"ControlPersist=5m",
+		"ControlMaster=no",
+		fmt.Sprintf("ControlPath=%s", toCygpath(controlSock)),
 	)
 	if forwardAgent {
 		opts = append(opts, "ForwardAgent=yes")
@@ -245,7 +285,7 @@ func SSHArgsFromOpts(opts []string) []string {
 }
 
 func ParseOpenSSHVersion(version []byte) *semver.Version {
-	regex := regexp.MustCompile(`^OpenSSH_(\d+\.\d+)(?:p(\d+))?\b`)
+	regex := regexp.MustCompile(`^OpenSSH(?:_for_Windows)?_(\d+\.\d+)(?:p(\d+))?\b`)
 	matches := regex.FindSubmatch(version)
 	if len(matches) == 3 {
 		if len(matches[2]) == 0 {

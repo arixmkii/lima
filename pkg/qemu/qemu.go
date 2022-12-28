@@ -658,7 +658,7 @@ func Cmdline(cfg Config) (string, []string, error) {
 			options += fmt.Sprintf(",path=%s", location)
 			options += fmt.Sprintf(",security_model=%s", *f.NineP.SecurityModel)
 			if !*f.Writable {
-				options += ",readonly"
+				options += ",readonly=on"
 			}
 			args = append(args, "-virtfs", options)
 		}
@@ -734,9 +734,11 @@ func getFirmware(qemuExe string, arch limayaml.Arch) (string, error) {
 	userLocalDir := filepath.Join(currentUser.HomeDir, ".local") // "$HOME/.local"
 
 	relativePath := fmt.Sprintf("share/qemu/edk2-%s-code.fd", arch)
+	relativePathWin := fmt.Sprintf("share/edk2-%s-code.fd", arch)
 	candidates := []string{
 		filepath.Join(userLocalDir, relativePath), // XDG-like
 		filepath.Join(localDir, relativePath),     // macOS (homebrew)
+		filepath.Join(binDir, relativePathWin),       // Windows
 	}
 
 	switch arch {

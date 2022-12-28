@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -163,7 +164,10 @@ func GenerateISO9660(instDir, name string, y *limayaml.LimaYAML, udpDNSLocalPort
 		if err != nil {
 			return err
 		}
-		mountPoint, err := localpathutil.Expand(f.MountPoint)
+		mountPoint, err := f.MountPoint, nil
+		if runtime.GOOS != "windows" {
+			mountPoint, err = localpathutil.Expand(f.MountPoint)
+		}
 		if err != nil {
 			return err
 		}

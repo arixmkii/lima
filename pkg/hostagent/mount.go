@@ -1,9 +1,16 @@
 package hostagent
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
+	"os/exec"
+	"path"
+	"runtime"
+	"strings"
 
 	"github.com/hashicorp/go-multierror"
 
@@ -33,13 +40,54 @@ func (a *HostAgent) setupMounts(ctx context.Context) ([]*mount, error) {
 	return res, mErr
 }
 
+func call(args []string, env []string) (string, error) {
+	cmd := exec.Command(args[0], args[1:]...)
+	if (env != nil) {
+		cmd.Env = append(cmd.Env, env...)
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	logrus.Debugf("Executing command: %v", cmd.Args)
+	out, err := cmd.Output()
+	logrus.Debugf("%q (%v) exited: stdout=%q, stderr=%q, err=%v", args[0], cmd.Args, string(out), stderr.String(), err)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func toCygpath(p string) string {
+	if runtime.GOOS == "windows" {
+		cp, _ := call([]string{"cygpath", "-u", p}, nil)
+		cd := path.Dir(cp)
+		cf := path.Base(cp)
+		h := sha256.New()
+		h.Write([]byte(cd))
+		sha256_hash := hex.EncodeToString(h.Sum(nil))
+		td := path.Join("/tmp", sha256_hash)
+		_, err := call([]string{"test", "-d", td}, nil)
+		if err == nil {
+			return path.Join(td, cf)
+		}
+		_, err = call([]string{"ln", "-s", cd, td}, []string{"MSYS=winsymlinks:nativestrict"})
+		if err == nil {
+			return path.Join(td, cf)
+		}
+		return cp
+	}
+	return p
+}
+
 func (a *HostAgent) setupMount(ctx context.Context, m limayaml.Mount) (*mount, error) {
 	location, err := localpathutil.Expand(m.Location)
 	if err != nil {
 		return nil, err
 	}
 
-	mountPoint, err := localpathutil.Expand(m.MountPoint)
+	mountPoint, err := m.MountPoint, nil
+	if runtime.GOOS != "windows" {
+		mountPoint, err = localpathutil.Expand(m.MountPoint)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +107,7 @@ func (a *HostAgent) setupMount(ctx context.Context, m limayaml.Mount) (*mount, e
 	rsf := &reversesshfs.ReverseSSHFS{
 		Driver:              *m.SSHFS.SFTPDriver,
 		SSHConfig:           a.sshConfig,
-		LocalPath:           location,
+		LocalPath:           toCygpath(location),
 		Host:                "127.0.0.1",
 		Port:                a.sshLocalPort,
 		RemotePath:          mountPoint,
