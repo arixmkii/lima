@@ -10,6 +10,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -305,6 +307,32 @@ func (a *HostAgent) Info(_ context.Context) (*hostagentapi.Info, error) {
 	return info, nil
 }
 
+func filterArgsNeg(args []string, predicate func(s string) bool) []string {
+	limit := len(args)
+	res := []string{}
+    for i := 0; i < limit; i++ {
+        if !predicate(args[i]) {
+            res = append(res, args[i])
+        } else {
+			res = res[:len(res) - 1]
+		}
+    }
+    return res
+}
+
+func executeShell(host string, port int, c *ssh.SSHConfig) {
+	for true {
+		ssh.ExecuteScript(
+			host,
+			port,
+			c,
+			`#!/bin/bash
+sleep infinity
+`,
+			"Infinite sleep")
+	}
+}
+
 func (a *HostAgent) startHostAgentRoutines(ctx context.Context) error {
 	a.onClose = append(a.onClose, func() error {
 		logrus.Debugf("shutting down the SSH master")
@@ -313,8 +341,36 @@ func (a *HostAgent) startHostAgentRoutines(ctx context.Context) error {
 		}
 		return nil
 	})
-	a.sshConfig.AdditionalArgs = append(a.sshConfig.AdditionalArgs, "-O", "proxy")
+
+	originalConfig := a.sshConfig
+
+	basicConfig := ssh.SSHConfig{
+		ConfigFile: originalConfig.ConfigFile,
+		Persist: originalConfig.Persist,
+		AdditionalArgs: append([]string{}, originalConfig.AdditionalArgs...),
+	}
+
+	basicConfig.AdditionalArgs = filterArgsNeg(basicConfig.AdditionalArgs, func (s string) bool { return strings.HasPrefix((s), "ControlPath") })
+	basicConfig.AdditionalArgs = filterArgsNeg(basicConfig.AdditionalArgs, func (s string) bool { return strings.HasPrefix((s), "ControlMaster") })
+
 	var mErr error
+	a.sshConfig = &basicConfig
+	if err := a.waitForRequirements(ctx, "basic", a.basicRequirements()); err != nil {
+		mErr = multierror.Append(mErr, err)
+	}
+
+	backgroundConfig := ssh.SSHConfig{
+		ConfigFile: originalConfig.ConfigFile,
+		Persist: originalConfig.Persist,
+		AdditionalArgs: append([]string{}, originalConfig.AdditionalArgs...),
+	}
+	backgroundConfig.AdditionalArgs = filterArgsNeg(backgroundConfig.AdditionalArgs, func (s string) bool { return strings.HasPrefix((s), "ControlMaster") })
+	backgroundConfig.AdditionalArgs = append(backgroundConfig.AdditionalArgs, "-o", "ControlMaster=yes")
+
+	go executeShell("127.0.0.1", a.sshLocalPort, &backgroundConfig)
+
+	a.sshConfig = originalConfig
+	a.sshConfig.AdditionalArgs = append(a.sshConfig.AdditionalArgs, "-O", "proxy")
 	if err := a.waitForRequirements(ctx, "essential", a.essentialRequirements()); err != nil {
 		mErr = multierror.Append(mErr, err)
 	}
@@ -408,6 +464,7 @@ func (a *HostAgent) watchGuestAgentEvents(ctx context.Context) {
 	for {
 		if !isGuestAgentSocketAccessible(ctx, localUnix) {
 			_ = forwardSSH(ctx, a.sshConfig, a.sshLocalPort, localUnix, remoteUnix, verbForward, false)
+			time.Sleep(10 * time.Second)
 		}
 		if err := a.processGuestAgentEvents(ctx, localUnix); err != nil {
 			if !errors.Is(err, context.Canceled) {
@@ -432,13 +489,16 @@ func isGuestAgentSocketAccessible(ctx context.Context, localUnix string) bool {
 }
 
 func (a *HostAgent) processGuestAgentEvents(ctx context.Context, localUnix string) error {
+	logrus.Debug("Registering guest agent")
 	client, err := guestagentclient.NewGuestAgentClient(localUnix)
 	if err != nil {
+		logrus.Debugf("Error registering %w", err)
 		return err
 	}
 
 	info, err := client.Info(ctx)
 	if err != nil {
+		logrus.Debugf("Error getting info %w", err)
 		return err
 	}
 
@@ -464,6 +524,45 @@ const (
 )
 
 func forwardSSH(ctx context.Context, sshConfig *ssh.SSHConfig, port int, local string, remote string, verb string, reverse bool) error {
+	match, _ := regexp.MatchString(".+:\\d+", local)
+	if match || runtime.GOOS != "windows" {
+		return forwardSSHImpl(ctx, sshConfig, port, local, remote, verb, reverse)
+	} else {
+		lp, err := findFreeTCPLocalPort()
+		if err != nil {
+			return err
+		}
+		localTemp := fmt.Sprintf("127.0.0.1:%d", lp)
+		if reverse {
+			logrus.Debugf("Will connect TCP %q to unix socket %q and forward", localTemp, local)
+			args := []string{"unix-to-tcp", "--src", local, "--dst", localTemp}
+			cmd := exec.CommandContext(ctx, "gocat", args...)
+			err := cmd.Start()
+			if err != nil {
+				return fmt.Errorf("failed to start %v: %w", cmd.Args, err)
+			}
+			err = forwardSSHImpl(ctx, sshConfig, port, localTemp, remote, verb, reverse)
+			if err != nil {
+				return err
+			}
+		} else {
+			logrus.Debugf("Will forward TCP %q and connect it to unix socket %q", localTemp, local)
+			err = forwardSSHImpl(ctx, sshConfig, port, localTemp, remote, verb, reverse)
+			if err != nil {
+				return err
+			}
+			args := []string{"tcp-to-unix", "--src", localTemp, "--dst", local}
+			cmd := exec.CommandContext(ctx, "gocat", args...)
+			err := cmd.Start()
+			if err != nil {
+				return fmt.Errorf("failed to start %v: %w", cmd.Args, err)
+			}
+		}
+		return nil
+	}
+}
+
+func forwardSSHImpl(ctx context.Context, sshConfig *ssh.SSHConfig, port int, local string, remote string, verb string, reverse bool) error {
 	args := sshConfig.Args()
 	// XXX hacks
 	args = args[:len(args) - 2]

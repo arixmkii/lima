@@ -129,8 +129,26 @@ func call(args []string) (string, error) {
 
 func toCygpath(p string) string {
 	if runtime.GOOS == "windows" {
-		dp, _ := call([]string{"cygpath", "-d", p})
-		cp, _ := call([]string{"cygpath", "-u", dp})
+		cp, _ := call([]string{"cygpath", "-u", p})
+		// dp, err := call([]string{"cygpath", "-d", p})
+		// if (err != nil) {
+		// 	// workaround for non existent files
+		// 	if _, err = os.Stat(p); err != nil {
+		// 		f, err := os.Create(p)
+		// 		if err != nil {
+		// 			return cp
+		// 		}
+		// 		f.Close()
+		// 		dp, err = call([]string{"cygpath", "-d", p})
+		// 		if err != nil {
+		// 			return cp
+		// 		}
+		// 		os.Remove(p) // ignore error here (no recovery)
+		// 	} else {
+		// 		return cp
+		// 	}
+		// }
+		// cp, _ = call([]string{"cygpath", "-u", dp})
 		return cp
 	}
 	return p
@@ -151,7 +169,7 @@ func CommonOpts(useDotSSH bool) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	opts := []string{"IdentityFile=\"" + toCygpath(privateKeyPath) + "\""}
+	opts := []string{"IdentityFile=" + toCygpath(privateKeyPath) + ""}
 
 	// Append all private keys corresponding to ~/.ssh/*.pub to keep old instances working
 	// that had been created before lima started using an internal identity.
@@ -182,7 +200,7 @@ func CommonOpts(useDotSSH bool) ([]string, error) {
 				// Fail on permission-related and other path errors
 				return nil, err
 			}
-			opts = append(opts, "IdentityFile=\""+toCygpath(privateKeyPath)+"\"")
+			opts = append(opts, "IdentityFile="+toCygpath(privateKeyPath)+"")
 		}
 	}
 
@@ -210,10 +228,10 @@ func CommonOpts(useDotSSH bool) ([]string, error) {
 		// We prioritize AES algorithms when AES accelerator is available.
 		if sshInfo.aesAccelerated {
 			logrus.Debugf("AES accelerator seems available, prioritizing aes128-gcm@openssh.com and aes256-gcm@openssh.com")
-			opts = append(opts, "Ciphers=\"^aes128-gcm@openssh.com,aes256-gcm@openssh.com\"")
+			opts = append(opts, "Ciphers=^aes128-gcm@openssh.com,aes256-gcm@openssh.com")
 		} else {
 			logrus.Debugf("AES accelerator does not seem available, prioritizing chacha20-poly1305@openssh.com")
-			opts = append(opts, "Ciphers=\"^chacha20-poly1305@openssh.com\"")
+			opts = append(opts, "Ciphers=^chacha20-poly1305@openssh.com")
 		}
 	}
 	return opts, nil
@@ -236,7 +254,7 @@ func SSHOpts(instDir string, useDotSSH bool, forwardAgent bool, forwardX11 bool,
 	opts = append(opts,
 		fmt.Sprintf("User=%s", u.Username), // guest and host have the same username, but we should specify the username explicitly (#85)
 		"ControlMaster=no",
-		fmt.Sprintf("ControlPath=\"%s\"", toCygpath(controlSock)),
+		fmt.Sprintf("ControlPath=%s", toCygpath(controlSock)),
 	)
 	if forwardAgent {
 		opts = append(opts, "ForwardAgent=yes")
