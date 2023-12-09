@@ -41,6 +41,7 @@ binaries: clean \
 	_output/bin/lima \
 	_output/bin/lima$(bat) \
 	_output/bin/limactl$(exe) \
+	_output/bin/hostagent$(exe) \
 	codesign \
 	_output/bin/nerdctl.lima \
 	_output/bin/apptainer.lima \
@@ -97,6 +98,16 @@ _output/bin/limactl$(exe):
 	# The hostagent must be compiled with CGO_ENABLED=1 so that net.LookupIP() in the DNS server
 	# calls the native resolver library and not the simplistic version in the Go library.
 	CGO_ENABLED=1 $(GO_BUILD) -o $@ ./cmd/limactl
+
+.PHONY: _output/bin/hostagent$(exe)
+_output/bin/hostagent$(exe):
+	# The hostagent must be compiled with CGO_ENABLED=1 so that net.LookupIP() in the DNS server
+	# calls the native resolver library and not the simplistic version in the Go library.
+ifneq ($(GOOS),windows)
+	echo "Skipped hostagent binary..."
+else
+	CGO_ENABLED=1 $(GO_BUILD) -ldflags -H=windowsgui -o $@ ./cmd/limactl
+endif
 
 .PHONY: _output/share/lima/lima-guestagent.Linux-x86_64
 _output/share/lima/lima-guestagent.Linux-x86_64:

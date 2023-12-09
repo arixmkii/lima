@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"text/template"
 	"time"
 
@@ -87,6 +88,9 @@ func Start(ctx context.Context, inst *store.Instance) error {
 	}
 
 	self, err := os.Executable()
+	if runtime.GOOS == "windwos" {
+		self = "hostagent"
+	}
 	if err != nil {
 		return err
 	}
