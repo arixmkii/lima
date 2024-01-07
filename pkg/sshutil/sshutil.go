@@ -16,7 +16,6 @@ import (
 	"sync"
 
 	"github.com/coreos/go-semver/semver"
-	"github.com/lima-vm/lima/pkg/ioutilx"
 	"github.com/lima-vm/lima/pkg/lockutil"
 	"github.com/lima-vm/lima/pkg/osutil"
 	"github.com/lima-vm/lima/pkg/store/dirnames"
@@ -137,7 +136,7 @@ func CommonOpts(useDotSSH bool) ([]string, error) {
 	}
 	var opts []string
 	if runtime.GOOS == "windows" {
-		privateKeyPath = ioutilx.CanonicalWindowsPath(privateKeyPath)
+		privateKeyPath = osutil.ToCygpath(privateKeyPath)
 		opts = []string{fmt.Sprintf(`IdentityFile='%s'`, privateKeyPath)}
 	} else {
 		opts = []string{fmt.Sprintf(`IdentityFile="%s"`, privateKeyPath)}
@@ -173,6 +172,7 @@ func CommonOpts(useDotSSH bool) ([]string, error) {
 				return nil, err
 			}
 			if runtime.GOOS == "windows" {
+				privateKeyPath = osutil.ToCygpath(privateKeyPath)
 				opts = append(opts, fmt.Sprintf(`IdentityFile='%s'`, privateKeyPath))
 			} else {
 				opts = append(opts, fmt.Sprintf(`IdentityFile="%s"`, privateKeyPath))
@@ -237,7 +237,7 @@ func SSHOpts(instDir string, useDotSSH, forwardAgent, forwardX11, forwardX11Trus
 	}
 	controlPath := fmt.Sprintf(`ControlPath="%s"`, controlSock)
 	if runtime.GOOS == "windows" {
-		controlSock = ioutilx.CanonicalWindowsPath(controlSock)
+		controlSock = osutil.ToCygpath(controlSock)
 		controlPath = fmt.Sprintf(`ControlPath='%s'`, controlSock)
 	}
 	opts = append(opts,
@@ -269,7 +269,7 @@ func SSHArgsFromOpts(opts []string) []string {
 }
 
 func ParseOpenSSHVersion(version []byte) *semver.Version {
-	regex := regexp.MustCompile(`^OpenSSH_(\d+\.\d+)(?:p(\d+))?\b`)
+	regex := regexp.MustCompile(`^OpenSSH(?:_for_Windows)?_(\d+\.\d+)(?:p(\d+))?\b`)
 	matches := regex.FindSubmatch(version)
 	if len(matches) == 3 {
 		if len(matches[2]) == 0 {

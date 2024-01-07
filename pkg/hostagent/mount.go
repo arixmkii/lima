@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 
 	"github.com/lima-vm/lima/pkg/limayaml"
 	"github.com/lima-vm/lima/pkg/localpathutil"
+	"github.com/lima-vm/lima/pkg/osutil"
 	"github.com/lima-vm/sshocker/pkg/reversesshfs"
 	"github.com/sirupsen/logrus"
 )
@@ -37,7 +39,10 @@ func (a *HostAgent) setupMount(m limayaml.Mount) (*mount, error) {
 		return nil, err
 	}
 
-	mountPoint, err := localpathutil.Expand(m.MountPoint)
+	mountPoint, err := m.MountPoint, nil
+	if runtime.GOOS != "windows" {
+		mountPoint, err = localpathutil.Expand(m.MountPoint)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +62,7 @@ func (a *HostAgent) setupMount(m limayaml.Mount) (*mount, error) {
 	rsf := &reversesshfs.ReverseSSHFS{
 		Driver:              *m.SSHFS.SFTPDriver,
 		SSHConfig:           a.sshConfig,
-		LocalPath:           location,
+		LocalPath:           osutil.ToCygpath(location),
 		Host:                "127.0.0.1",
 		Port:                a.sshLocalPort,
 		RemotePath:          mountPoint,

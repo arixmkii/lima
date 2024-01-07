@@ -58,7 +58,7 @@ type requirement struct {
 	fatal       bool
 }
 
-func (a *HostAgent) essentialRequirements() []requirement {
+func (a *HostAgent) basicRequirements() []requirement {
 	req := make([]requirement, 0)
 	req = append(req,
 		requirement{
@@ -88,6 +88,22 @@ fi
 /etc/environment to make sure the session includes the new values.
 Terminating the session will break the persistent SSH tunnel, so
 it must not be created until the session reset is done.
+`,
+		})
+	return req
+}
+
+func (a *HostAgent) essentialRequirements() []requirement {
+	req := make([]requirement, 0)
+	req = append(req,
+		requirement{
+			description: "ssh",
+			script: `#!/bin/bash
+true
+`,
+			debugHint: `Failed to SSH into the guest.
+Make sure that the YAML field "ssh.localPort" is not used by other processes on the host.
+If any private key under ~/.ssh is protected with a passphrase, you need to have ssh-agent to be running.
 `,
 		})
 

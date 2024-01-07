@@ -11,6 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -436,6 +438,31 @@ func (a *HostAgent) Info(_ context.Context) (*hostagentapi.Info, error) {
 	return info, nil
 }
 
+func filterArgsNeg(args []string, predicate func(s string) bool) []string {
+	limit := len(args)
+	res := []string{}
+    for i := 0; i < limit; i++ {
+        if !predicate(args[i]) {
+            res = append(res, args[i])
+        } else {
+			res = res[:len(res) - 1]
+		}
+    }
+    return res
+}
+
+func executeShell(host string, port int, c *ssh.SSHConfig) {
+	stdout, stderr, err := ssh.ExecuteScript(
+		host,
+		port,
+		c,
+		`#!/bin/bash
+sleep infinity
+`,
+		"Infinite sleep")
+	logrus.Debugf("SSH Control node exited: stdout=%q, stderr=%q, err=%v", stdout, stderr, err)
+}
+
 func (a *HostAgent) startHostAgentRoutines(ctx context.Context) error {
 	if *a.y.Plain {
 		logrus.Info("Running in plain mode. Mounts, port forwarding, containerd, etc. will be ignored. Guest agent will not be running.")
@@ -448,6 +475,36 @@ func (a *HostAgent) startHostAgentRoutines(ctx context.Context) error {
 		return nil
 	})
 	var errs []error
+
+	originalConfig := a.sshConfig
+
+	basicConfig := ssh.SSHConfig{
+		ConfigFile: originalConfig.ConfigFile,
+		Persist: originalConfig.Persist,
+		AdditionalArgs: append([]string{}, originalConfig.AdditionalArgs...),
+	}
+
+	basicConfig.AdditionalArgs = filterArgsNeg(basicConfig.AdditionalArgs, func (s string) bool { return strings.HasPrefix((s), "ControlPath") })
+	basicConfig.AdditionalArgs = filterArgsNeg(basicConfig.AdditionalArgs, func (s string) bool { return strings.HasPrefix((s), "ControlMaster") })
+
+	a.sshConfig = &basicConfig
+	if err := a.waitForRequirements("basic", a.basicRequirements()); err != nil {
+		errs = append(errs, err)
+	}
+
+	backgroundConfig := ssh.SSHConfig{
+		ConfigFile: originalConfig.ConfigFile,
+		Persist: originalConfig.Persist,
+		AdditionalArgs: append([]string{}, originalConfig.AdditionalArgs...),
+	}
+	backgroundConfig.AdditionalArgs = filterArgsNeg(backgroundConfig.AdditionalArgs, func (s string) bool { return strings.HasPrefix((s), "ControlMaster") })
+	backgroundConfig.AdditionalArgs = append(backgroundConfig.AdditionalArgs, "-o", "ControlMaster=yes")
+
+	go executeShell("127.0.0.1", a.sshLocalPort, &backgroundConfig)
+
+	a.sshConfig = originalConfig
+	a.sshConfig.AdditionalArgs = append(a.sshConfig.AdditionalArgs, "-O", "proxy")
+
 	if err := a.waitForRequirements("essential", a.essentialRequirements()); err != nil {
 		errs = append(errs, err)
 	}
@@ -593,6 +650,7 @@ func (a *HostAgent) watchGuestAgentEvents(ctx context.Context) {
 		if a.client == nil || !isGuestAgentSocketAccessible(ctx, a.client) {
 			if a.driver.ForwardGuestAgent() {
 				_ = forwardSSH(ctx, a.sshConfig, a.sshLocalPort, localUnix, remoteUnix, verbForward, false)
+				time.Sleep(10 * time.Second)
 			}
 		}
 		client, err := a.getOrCreateClient(ctx)
@@ -694,8 +752,57 @@ func executeSSH(ctx context.Context, sshConfig *ssh.SSHConfig, port int, command
 	return nil
 }
 
+func runTcpUnixConverter(ctx context.Context, tcp, unix string, reverse bool) {
+	if (reverse) {
+		logrus.Debugf("Will connect TCP %q to unix socket %q and forward", tcp, unix)
+		args := []string{"unix-to-tcp", "--src", unix, "--dst", tcp}
+		cmd := exec.CommandContext(ctx, "gocat", args...)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
+		logrus.Debugf("gocat forwarder for %q: %q->%q exited: stdout=%q, stderr=%q, err=%v", "unix-to-tcp", unix, tcp, string(out), stderr.String(), err)
+	} else {
+		logrus.Debugf("Will forward TCP %q and connect it to unix socket %q", tcp, unix)
+		args := []string{"tcp-to-unix", "--src", tcp, "--dst", unix}
+		cmd := exec.CommandContext(ctx, "gocat", args...)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
+		logrus.Debugf("gocat forwarder for %q: %q->%q exited: stdout=%q, stderr=%q, err=%v", "tcp-to-unix", tcp, unix, string(out), stderr.String(), err)
+	}
+}
+
 func forwardSSH(ctx context.Context, sshConfig *ssh.SSHConfig, port int, local, remote, verb string, reverse bool) error {
+	match, _ := regexp.MatchString(".+:\\d+", local)
+	if verb == verbCancel || match || runtime.GOOS != "windows" {
+		return forwardSSHImpl(ctx, sshConfig, port, local, remote, verb, reverse)
+	} else {
+		lp, err := findFreeTCPLocalPort()
+		if err != nil {
+			return err
+		}
+		localTemp := fmt.Sprintf("127.0.0.1:%d", lp)
+		if reverse {
+			go runTcpUnixConverter(ctx, localTemp, local, reverse)
+			err = forwardSSHImpl(ctx, sshConfig, port, localTemp, remote, verb, reverse)
+			if err != nil {
+				return err
+			}
+		} else {
+			err = forwardSSHImpl(ctx, sshConfig, port, localTemp, remote, verb, reverse)
+			if err != nil {
+				return err
+			}
+			go runTcpUnixConverter(ctx, localTemp, local, reverse)
+		}
+		return nil
+	}
+}
+
+func forwardSSHImpl(ctx context.Context, sshConfig *ssh.SSHConfig, port int, local, remote, verb string, reverse bool) error {
 	args := sshConfig.Args()
+	// XXX hacks
+	args = args[:len(args) - 2]
 	args = append(args,
 		"-T",
 		"-O", verb,
