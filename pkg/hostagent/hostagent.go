@@ -480,7 +480,7 @@ func (a *HostAgent) startHostAgentRoutines(ctx context.Context) error {
 
 	basicConfig := ssh.SSHConfig{
 		ConfigFile: originalConfig.ConfigFile,
-		Persist: originalConfig.Persist,
+		Persist: false,
 		AdditionalArgs: append([]string{}, originalConfig.AdditionalArgs...),
 	}
 
@@ -494,7 +494,7 @@ func (a *HostAgent) startHostAgentRoutines(ctx context.Context) error {
 
 	backgroundConfig := ssh.SSHConfig{
 		ConfigFile: originalConfig.ConfigFile,
-		Persist: originalConfig.Persist,
+		Persist: false,
 		AdditionalArgs: append([]string{}, originalConfig.AdditionalArgs...),
 	}
 	backgroundConfig.AdditionalArgs = filterArgsNeg(backgroundConfig.AdditionalArgs, func (s string) bool { return strings.HasPrefix((s), "ControlMaster") })

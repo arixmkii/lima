@@ -221,7 +221,7 @@ func CommonOpts(useDotSSH bool) ([]string, error) {
 	return opts, nil
 }
 
-// SSHOpts adds the following options to CommonOptions: User, ControlMaster, ControlPath, ControlPersist
+// SSHOpts adds the following options to CommonOptions: User, ControlMaster, ControlPath
 func SSHOpts(instDir string, useDotSSH, forwardAgent, forwardX11, forwardX11Trusted bool) ([]string, error) {
 	controlSock := filepath.Join(instDir, filenames.SSHSock)
 	if len(controlSock) >= osutil.UnixPathMax {
@@ -242,9 +242,8 @@ func SSHOpts(instDir string, useDotSSH, forwardAgent, forwardX11, forwardX11Trus
 	}
 	opts = append(opts,
 		fmt.Sprintf("User=%s", u.Username), // guest and host have the same username, but we should specify the username explicitly (#85)
-		"ControlMaster=auto",
+		"ControlMaster=no",
 		controlPath,
-		"ControlPersist=yes",
 	)
 	if forwardAgent {
 		opts = append(opts, "ForwardAgent=yes")
