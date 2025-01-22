@@ -1120,9 +1120,11 @@ func getFirmware(qemuExe string, arch limayaml.Arch) (string, error) {
 	userLocalDir := filepath.Join(currentUser.HomeDir, ".local") // "$HOME/.local"
 
 	relativePath := fmt.Sprintf("share/qemu/edk2-%s-code.fd", qemuEdk2Arch(arch))
+	relativePathWin := fmt.Sprintf("share/edk2-%s-code.fd", qemuEdk2Arch(arch))
 	candidates := []string{
 		filepath.Join(userLocalDir, relativePath), // XDG-like
 		filepath.Join(localDir, relativePath),     // macOS (homebrew)
+		filepath.Join(binDir, relativePathWin),    // Windows installer
 	}
 
 	switch arch {

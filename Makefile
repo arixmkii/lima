@@ -551,6 +551,20 @@ artifacts-misc: | _artifacts
 
 MKDIR_TARGETS += _artifacts
 
+.PHONY: add-bundles
+add-bundles: add-bundle-wsl
+
+add-bundle-wsl: _output/bin/bundle-wsl/wsllinks.ini _output/bin/bundle-wsl/sftp-server.ini _output/bin/bundle-wsl/cygpath.exe _output/bin/bundle-wsl/id.exe _output/bin/bundle-wsl/realpath.exe _output/bin/bundle-wsl/sftp-server.exe _output/bin/bundle-wsl/ssh.exe _output/bin/bundle-wsl/ssh-keygen.exe 
+
+
+_output/bin/bundle-wsl/%.ini: contrib/bundle-wsl/%.ini | _output/bin/bundle-wsl
+	cp -a $< $@
+
+_output/bin/bundle-wsl/%.exe:
+	cp -a contrib/bundle-wsl/go-wsllinks.exe $@
+
+MKDIR_TARGETS += _output/bin/bundle-wsl
+
 ################################################################################
 # This target must be placed after any changes to the `MKDIR_TARGETS` variable.
 # It seems that variable expansion in Makefile targets is not done recursively.
