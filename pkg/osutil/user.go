@@ -141,7 +141,7 @@ func LimaUser(limaVersion string, warn bool) *user.User {
 				warnings = append(warnings, warning)
 				limaUser.Gid = formatUidGid(gid)
 			}
-			home, err := call([]string{"cygpath", limaUser.HomeDir})
+			home, err := call([]string{"realpath", "~"})
 			if err != nil {
 				logrus.Debug(err)
 			}

@@ -33,6 +33,11 @@ if ($ipv4 eq "127.0.0.1" && $Config{osname} eq "darwin") {
     chomp $ipv4;
 }
 
+if ($Config{osname} eq "cygwin" && "$ENV{LIMA_SSH_PORT_FORWARDER}" ne "false") {
+  $ipv4 = qx(wsl -d lima-infra ip -4 -o addr show eth0 | awk '{print \$4}' | cut -d/ -f1);
+  chomp $ipv4;
+}
+
 # If $instance is a filename, add our portForwards to it to enable testing
 if (-f $instance) {
     open(my $fh, "+< $instance") or die "Can't open $instance for read/write: $!";
@@ -100,6 +105,10 @@ while (<DATA>) {
         printf "🚧 Not supported on $Config{osname}: # $_\n";
         next;
     }
+    if ($test{mode} eq "forward" && $test{host_ip} eq "::" && $Config{osname} eq "cygwin" && "$ENV{LIMA_SSH_PORT_FORWARDER}" ne "false") {
+        printf "🚧 Not supported on $Config{osname}: # $_\n";
+        next;
+    }
     $test{host_ip} ||= "127.0.0.1";
     $test{host_port} ||= $test{guest_port};
 
@@ -129,7 +138,8 @@ EOF
 sleep 5;
 
 # Record current log size, so we can skip prior output
-$ENV{LIMA_HOME} ||= "$ENV{HOME}/.lima";
+$ENV{HOME_SRC} ||= "$ENV{HOME}";
+$ENV{LIMA_HOME} ||= "$ENV{HOME_SRC}/.lima";
 my $ha_log = "$ENV{LIMA_HOME}/$instance/ha.stderr.log";
 my $ha_log_size = -s $ha_log or die;
 

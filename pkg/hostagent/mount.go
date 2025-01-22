@@ -4,7 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"path"
+	"runtime"
 
+	"github.com/lima-vm/lima/pkg/ioutilx"
 	"github.com/lima-vm/lima/pkg/limayaml"
 	"github.com/lima-vm/lima/pkg/localpathutil"
 	"github.com/lima-vm/sshocker/pkg/reversesshfs"
@@ -36,13 +40,22 @@ func (a *HostAgent) setupMount(m limayaml.Mount) (*mount, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := os.MkdirAll(location, 0o755); err != nil {
+		return nil, err
+	}
+	if runtime.GOOS == "windows" && !path.IsAbs(location) {
+		location = ioutilx.CanonicalWindowsPath(location)
+	}
 
-	mountPoint, err := localpathutil.Expand(*m.MountPoint)
+	mountPoint := *m.MountPoint
+	if !path.IsAbs(mountPoint) {
+		mountPoint, err = localpathutil.Expand(mountPoint)
+	}
 	if err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(location, 0o755); err != nil {
-		return nil, err
+	if runtime.GOOS == "windows" && !path.IsAbs(mountPoint) {
+		mountPoint = ioutilx.CanonicalWindowsPath(mountPoint)
 	}
 	// NOTE: allow_other requires "user_allow_other" in /etc/fuse.conf
 	sshfsOptions := "allow_other"
@@ -63,6 +76,10 @@ func (a *HostAgent) setupMount(m limayaml.Mount) (*mount, error) {
 		RemotePath:          mountPoint,
 		Readonly:            !(*m.Writable),
 		SSHFSAdditionalArgs: []string{"-o", sshfsOptions},
+	}
+	serverPath, err := exec.LookPath("sftp-server")
+	if err == nil {
+		rsf.OpensshSftpServerBinary = serverPath
 	}
 	if err := rsf.Prepare(); err != nil {
 		return nil, fmt.Errorf("failed to prepare reverse sshfs for %q on %q: %w", location, mountPoint, err)
