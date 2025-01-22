@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -95,8 +96,12 @@ func DefaultPubKeys(loadDotSSH bool) ([]PubKey, error) {
 		}
 		if err := lockutil.WithDirLock(configDir, func() error {
 			// no passphrase, no user@host comment
+			privPath := filepath.Join(configDir, filenames.UserPrivateKey)
+			if runtime.GOOS == "windows" {
+				privPath = ioutilx.CanonicalWindowsPath(privPath)
+			}
 			keygenCmd := exec.Command("ssh-keygen", "-t", "ed25519", "-q", "-N", "",
-				"-C", "lima", "-f", filepath.Join(configDir, filenames.UserPrivateKey))
+				"-C", "lima", "-f", privPath)
 			logrus.Debugf("executing %v", keygenCmd.Args)
 			if out, err := keygenCmd.CombinedOutput(); err != nil {
 				return fmt.Errorf("failed to run %v: %q: %w", keygenCmd.Args, string(out), err)
@@ -177,7 +182,7 @@ func CommonOpts(sshPath string, useDotSSH bool) ([]string, error) {
 
 	// Append all private keys corresponding to ~/.ssh/*.pub to keep old instances working
 	// that had been created before lima started using an internal identity.
-	if useDotSSH {
+	if runtime.GOOS != "windows" && useDotSSH {
 		homeDir, err := os.UserHomeDir()
 		if err != nil {
 			return nil, err
@@ -204,11 +209,7 @@ func CommonOpts(sshPath string, useDotSSH bool) ([]string, error) {
 				// Fail on permission-related and other path errors
 				return nil, err
 			}
-			if runtime.GOOS == "windows" {
-				opts = append(opts, fmt.Sprintf(`IdentityFile='%s'`, privateKeyPath))
-			} else {
-				opts = append(opts, fmt.Sprintf(`IdentityFile="%s"`, privateKeyPath))
-			}
+			opts = append(opts, fmt.Sprintf(`IdentityFile="%s"`, privateKeyPath))
 		}
 	}
 
@@ -265,8 +266,8 @@ func SSHOpts(sshPath, instDir, username string, useDotSSH, forwardAgent, forward
 	}
 	controlPath := fmt.Sprintf(`ControlPath="%s"`, controlSock)
 	if runtime.GOOS == "windows" {
-		controlSock = ioutilx.CanonicalWindowsPath(controlSock)
-		controlPath = fmt.Sprintf(`ControlPath='%s'`, controlSock)
+		controlSock = strings.ReplaceAll(ioutilx.CanonicalWindowsPath(controlSock), "/", "_")
+		controlPath = fmt.Sprintf(`ControlPath='%s'`, path.Join("/var/opt/lima", strings.TrimPrefix(controlSock, "_mnt_")))
 	}
 	opts = append(opts,
 		fmt.Sprintf("User=%s", username), // guest and host have the same username, but we should specify the username explicitly (#85)
