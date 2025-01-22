@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -47,7 +48,7 @@ func FromUTF16leToString(r io.Reader) (string, error) {
 
 func CanonicalWindowsPath(orig string) string {
 	newPath := orig
-	out, err := exec.Command("cygpath", "-m", orig).CombinedOutput()
+	out, err := exec.Command("wslpath", filepath.ToSlash(orig)).CombinedOutput()
 	if err != nil {
 		logrus.WithError(err).Errorf("failed to convert path to mingw, maybe not using Git ssh?")
 	} else {

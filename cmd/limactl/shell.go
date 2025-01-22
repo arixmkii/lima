@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -105,7 +106,7 @@ func shellAction(cmd *cobra.Command, args []string) error {
 		logrus.Debug("the host home does not seem mounted, so the guest shell will have a different cwd")
 	}
 
-	if changeDirCmd == "" {
+	if runtime.GOOS == "windows" || changeDirCmd == "" {
 		changeDirCmd = "false"
 	}
 	logrus.Debugf("changeDirCmd=%q", changeDirCmd)
