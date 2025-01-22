@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -eu -o pipefail
 
+export MSYS2_ARG_CONV_EXCL='*'
+
 scriptdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=common.inc.sh
 source "${scriptdir}/common.inc.sh"
@@ -13,6 +15,9 @@ fi
 FILE="$1"
 NAME="$(basename -s .yaml "$FILE")"
 
+HOME_SRC=${HOME_SRC:-$HOME}
+HOME_DST=${HOME_DST:-$HOME}
+
 INFO "Validating \"$FILE\""
 limactl validate "$FILE"
 
@@ -22,6 +27,7 @@ LIMACTL_CREATE=(limactl --tty=false create --cpus=1 --memory=1)
 CONTAINER_ENGINE="nerdctl"
 
 declare -A CHECKS=(
+	["proxy-settings"]="1"
 	["systemd"]="1"
 	["systemd-strict"]="1"
 	["mount-home"]="1"
@@ -69,6 +75,11 @@ case "$NAME" in
 "docker")
 	CONTAINER_ENGINE="docker"
 	;;
+"wsl2")
+	CHECKS["systemd"]=
+	CHECKS["proxy-settings"]=
+	CHECKS["port-forwards"]=
+	;;
 esac
 
 if limactl ls -q | grep -q "$NAME"; then
@@ -93,7 +104,7 @@ esac
 limactl rm -f "${NAME}-tmp"
 
 if [[ -n ${CHECKS["port-forwards"]} ]]; then
-	tmpconfig="$HOME/lima-config-tmp"
+	tmpconfig="$HOME_SRC/lima-config-tmp"
 	mkdir -p "${tmpconfig}"
 	defer "rm -rf \"$tmpconfig\""
 	tmpfile="${tmpconfig}/${NAME}.yaml"
@@ -101,17 +112,21 @@ if [[ -n ${CHECKS["port-forwards"]} ]]; then
 	FILE="${tmpfile}"
 	INFO "Setup port forwarding rules for testing in \"${FILE}\""
 	"${scriptdir}/test-port-forwarding.pl" "${FILE}"
-	limactl validate "$FILE"
+	if [ "$(uname -o)" = "Msys" ]; then
+		limactl validate $(cygpath -w "$FILE")
+	else
+		limactl validate "$FILE"
+	fi
 fi
 
 function diagnose() {
 	NAME="$1"
 	set -x +e
-	tail "$HOME/.lima/${NAME}"/*.log
+	tail "$HOME_SRC/.lima/${NAME}"/*.log
 	limactl shell "$NAME" systemctl --no-pager status
 	limactl shell "$NAME" systemctl --no-pager
 	mkdir -p failure-logs
-	cp -pf "$HOME/.lima/${NAME}"/*.log failure-logs/
+	cp -pf "$HOME_SRC/.lima/${NAME}"/*.log failure-logs/
 	limactl shell "$NAME" sudo cat /var/log/cloud-init-output.log | tee failure-logs/cloud-init-output.log
 	set +x -e
 }
@@ -130,7 +145,11 @@ fi
 
 set -x
 # shellcheck disable=SC2086
-"${LIMACTL_CREATE[@]}" ${LIMACTL_CREATE_ARGS} "$FILE"
+if [ "$(uname -o)" = "Msys" ]; then
+	"${LIMACTL_CREATE[@]}" ${LIMACTL_CREATE_ARGS} $(cygpath -w "$FILE")
+else
+	"${LIMACTL_CREATE[@]}" ${LIMACTL_CREATE_ARGS} "$FILE"
+fi
 set +x
 
 if [[ -n ${CHECKS["mount-path-with-spaces"]} ]]; then
@@ -152,7 +171,7 @@ limactl shell "$NAME" cat /etc/os-release
 set +x
 
 INFO "Testing that host home is not wiped out"
-[ -e "$HOME/.lima" ]
+[ -e "$HOME_SRC/.lima" ]
 
 if [[ -n ${CHECKS["mount-path-with-spaces"]} ]]; then
 	INFO 'Testing that "/tmp/lima test dir with spaces" is not wiped out'
@@ -179,16 +198,18 @@ if [[ -n ${CHECKS["set-user"]} ]]; then
 	limactl shell "$NAME" grep "^john:x:4711:4711:John Doe:/home/john-john" /etc/passwd
 fi
 
-INFO "Testing proxy settings are imported"
-got=$(limactl shell "$NAME" env | grep FTP_PROXY)
-# Expected: FTP_PROXY is set in addition to ftp_proxy, localhost is replaced
-# by the gateway address, and the value is set immediately without a restart
-gatewayIp=$(limactl shell "$NAME" ip route show 0.0.0.0/0 dev eth0 | cut -d\  -f3)
-expected="FTP_PROXY=http://${gatewayIp}:2121"
-INFO "FTP_PROXY: expected=${expected} got=${got}"
-if [ "$got" != "$expected" ]; then
-	ERROR "proxy environment variable not set to correct value"
-	exit 1
+if [[ -n ${CHECKS["proxy-settings"]} ]]; then
+	INFO "Testing proxy settings are imported"
+	got=$(limactl shell "$NAME" env | grep FTP_PROXY)
+	# Expected: FTP_PROXY is set in addition to ftp_proxy, localhost is replaced
+	# by the gateway address, and the value is set immediately without a restart
+	gatewayIp=$(limactl shell "$NAME" ip route show 0.0.0.0/0 dev eth0 | cut -d\  -f3)
+	expected="FTP_PROXY=http://${gatewayIp}:2121"
+	INFO "FTP_PROXY: expected=${expected} got=${got}"
+	if [ "$got" != "$expected" ]; then
+		ERROR "proxy environment variable not set to correct value"
+		exit 1
+	fi
 fi
 
 INFO "Testing limactl copy command"
@@ -196,7 +217,9 @@ tmpdir="$(mktemp -d "${TMPDIR:-/tmp}"/lima-test-templates.XXXXXX)"
 defer "rm -rf \"$tmpdir\""
 tmpfile="$tmpdir/lima-hostname"
 rm -f "$tmpfile"
-limactl cp "$NAME":/etc/hostname "$tmpfile"
+wintmpdir="$(cygpath -w / | sed 's_\\_/_g' | sed 's/.$//')"
+mnttmpdir="$(wsl -d lima-infra wslpath $wintmpdir)"
+limactl cp "$NAME":/etc/hostname "$mnttmpdir$tmpfile"
 expected="$(limactl shell "$NAME" cat /etc/hostname)"
 got="$(cat "$tmpfile")"
 INFO "/etc/hostname: expected=${expected}, got=${got}"
@@ -234,32 +257,37 @@ nginx_image="ghcr.io/stargz-containers/nginx:1.19-alpine-org"
 alpine_image="ghcr.io/containerd/alpine:3.14.0"
 
 if [[ -n ${CHECKS["container-engine"]} ]]; then
+	sudo=""
+	if [[ ${NAME} == "wsl2" ]]; then
+		sudo="sudo"
+	fi
 	INFO "Run a nginx container with port forwarding 127.0.0.1:8080"
 	set -x
-	if ! limactl shell "$NAME" $CONTAINER_ENGINE info; then
-		limactl shell "$NAME" sudo cat /var/log/cloud-init-output.log
+	if ! limactl shell "$NAME" $sudo $CONTAINER_ENGINE info; then
+		limactl shell "$NAME" cat /var/log/cloud-init-output.log
 		ERROR "\"${CONTAINER_ENGINE} info\" failed"
 		exit 1
 	fi
-	limactl shell "$NAME" $CONTAINER_ENGINE pull --quiet ${nginx_image}
-	limactl shell "$NAME" $CONTAINER_ENGINE run -d --name nginx -p 127.0.0.1:8080:80 ${nginx_image}
+	limactl shell "$NAME" $sudo $CONTAINER_ENGINE pull --quiet ${nginx_image}
+	limactl shell "$NAME" $sudo $CONTAINER_ENGINE run -d --name nginx -p 127.0.0.1:8080:80 ${nginx_image}
 
 	timeout 3m bash -euxc "until curl -f --retry 30 --retry-connrefused http://127.0.0.1:8080; do sleep 3; done"
 
-	limactl shell "$NAME" $CONTAINER_ENGINE rm -f nginx
+	limactl shell "$NAME" $sudo $CONTAINER_ENGINE rm -f nginx
 	set +x
 	if [[ -n ${CHECKS["mount-home"]} ]]; then
-		hometmp="$HOME/lima-container-engine-test-tmp"
+		hometmp="$HOME_SRC/lima-container-engine-test-tmp"
+		hometmpdst="$HOME_DST/lima-container-engine-test-tmp"
 		# test for https://github.com/lima-vm/lima/issues/187
 		INFO "Testing home bind mount (\"$hometmp\")"
 		rm -rf "$hometmp"
 		mkdir -p "$hometmp"
 		defer "rm -rf \"$hometmp\""
 		set -x
-		limactl shell "$NAME" $CONTAINER_ENGINE pull --quiet ${alpine_image}
+		limactl shell "$NAME" $sudo $CONTAINER_ENGINE pull --quiet ${alpine_image}
 		echo "random-content-${RANDOM}" >"$hometmp/random"
 		expected="$(cat "$hometmp/random")"
-		got="$(limactl shell "$NAME" $CONTAINER_ENGINE run --rm -v "$hometmp/random":/mnt/foo ${alpine_image} cat /mnt/foo)"
+		got="$(limactl shell "$NAME" $sudo $CONTAINER_ENGINE run --rm -v "$hometmpdst/random":/mnt/foo ${alpine_image} cat /mnt/foo)"
 		INFO "$hometmp/random: expected=${expected}, got=${got}"
 		if [ "$got" != "$expected" ]; then
 			ERROR "Home directory is not shared?"
@@ -284,6 +312,9 @@ if [[ -n ${CHECKS["port-forwards"]} ]]; then
 	if [ "${NAME}" = "opensuse" ]; then
 		limactl shell "$NAME" sudo zypper in -y netcat-openbsd
 	fi
+	if [ "${NAME}" == "wsl2" ]; then
+		limactl shell "$NAME" sudo dnf install -y nc
+	fi
 	"${scriptdir}/test-port-forwarding.pl" "${NAME}"
 
 	if [[ -n ${CHECKS["container-engine"]} || ${NAME} == "alpine"* ]]; then
@@ -293,6 +324,9 @@ if [[ -n ${CHECKS["port-forwards"]} ]]; then
 			hostip=$(system_profiler SPNetworkDataType -json | jq -r 'first(.SPNetworkDataType[] | select(.ip_address) | .ip_address) | first')
 		else
 			hostip=$(perl -MSocket -MSys::Hostname -E 'say inet_ntoa(scalar gethostbyname(hostname()))')
+		fi
+		if [[ "$(uname -o)" = "Msys" && "${LIMA_SSH_PORT_FORWARDER-true}" != "false" ]]; then
+			hostip=$(wsl -d lima-infra ip -4 -o addr show eth0 | awk '{print $4}' | cut -d/ -f1)
 		fi
 		if [ -n "${hostip}" ]; then
 			sudo=""
@@ -304,6 +338,9 @@ if [[ -n ${CHECKS["port-forwards"]} ]]; then
 				limactl shell "$NAME" sudo rc-service containerd start
 				limactl shell "$NAME" sudo tar xzf "${PWD}/nerdctl-full.tgz" -C /usr/local
 				rm nerdctl-full.tgz
+				sudo="sudo"
+			fi
+			if [[ ${NAME} == "wsl2" ]]; then
 				sudo="sudo"
 			fi
 			limactl shell "$NAME" $sudo $CONTAINER_ENGINE info
@@ -360,7 +397,7 @@ if [[ -n ${CHECKS["restart"]} ]]; then
 	fi
 
 	INFO "Stopping \"$NAME\""
-	limactl stop "$NAME"
+	limactl stop "$NAME" || true
 	sleep 3
 
 	if [[ -n ${CHECKS["disk"]} ]]; then
@@ -474,7 +511,7 @@ if [[ $NAME == "fedora" && "$(limactl ls --json "$NAME" | jq -r .vmType)" == "vz
 fi
 
 INFO "Stopping \"$NAME\""
-limactl stop "$NAME"
+limactl stop "$NAME" || true
 sleep 3
 
 INFO "Deleting \"$NAME\""

@@ -1098,7 +1098,7 @@ func qemuEdk2Arch(arch limayaml.Arch) string {
 }
 
 func Exe(arch limayaml.Arch) (exe string, args []string, err error) {
-	exeBase := "qemu-system-" + qemuArch(arch)
+	exeBase := "qemu-system-" + qemuArch(arch) + "w"
 	envK := "QEMU_SYSTEM_" + strings.ToUpper(qemuArch(arch))
 	if envV := os.Getenv(envK); envV != "" {
 		ss, err := shellwords.Parse(envV)

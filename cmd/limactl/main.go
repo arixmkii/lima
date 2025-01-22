@@ -25,6 +25,20 @@ const (
 )
 
 func main() {
+	if runtime.GOOS == "windows" {
+		binary, e := os.Executable()
+		if e == nil {
+			binaryDir := filepath.Dir(binary)
+			extrasDir := filepath.Join(binaryDir, "bundle-wsl")
+			p := os.Getenv("PATH")
+			e = os.Setenv("PATH", extrasDir+string(filepath.ListSeparator)+p)
+			if e != nil {
+				logrus.Warning("Can't add extras to PATH, relying fully on system PATH")
+			}
+		} else {
+			logrus.Warning("Can't get binary location, relying fully on system PATH")
+		}
+	}
 	if err := newApp().Execute(); err != nil {
 		handleExitCoder(err)
 		logrus.Fatal(err)
