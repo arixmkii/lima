@@ -182,6 +182,11 @@ type Firmware struct {
 	// LegacyBIOS is ignored for aarch64.
 	LegacyBIOS *bool `yaml:"legacyBIOS,omitempty" json:"legacyBIOS,omitempty" jsonschema:"nullable"`
 
+	// CompatUEFIViaBIOS forces QEMU to load concatenated firmware with -bios option
+	// CompatUEFIViaBIOS is ignored for non x86_64
+	// This should be deprecated, if the issue in QEMU is fixed https://gitlab.com/qemu-project/qemu/-/issues/513
+	CompatUEFIViaBIOS *bool `yaml:"compatUEFIInBIOS" json:"compatUEFIInBIOS,omitempty" jsonschema:"nullable"` // default: false on non Windows and true on Windows
+
 	// Images specify UEFI images (edk2-aarch64-code.fd.gz).
 	// Defaults to built-in UEFI.
 	Images []FileWithVMType `yaml:"images,omitempty" json:"images,omitempty"`

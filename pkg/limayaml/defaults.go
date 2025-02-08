@@ -394,6 +394,16 @@ func FillDefault(y, d, o *LimaYAML, filePath string, warn bool) {
 		y.Firmware.LegacyBIOS = ptr.Of(false)
 	}
 
+	if y.Firmware.CompatUEFIViaBIOS == nil {
+		y.Firmware.CompatUEFIViaBIOS = d.Firmware.CompatUEFIViaBIOS
+	}
+	if o.Firmware.CompatUEFIViaBIOS != nil {
+		y.Firmware.CompatUEFIViaBIOS = o.Firmware.CompatUEFIViaBIOS
+	}
+	if y.Firmware.CompatUEFIViaBIOS == nil {
+		y.Firmware.CompatUEFIViaBIOS = ptr.Of(runtime.GOOS == "windows")
+	}
+
 	y.Firmware.Images = append(append(o.Firmware.Images, y.Firmware.Images...), d.Firmware.Images...)
 	for i := range y.Firmware.Images {
 		f := &y.Firmware.Images[i]
