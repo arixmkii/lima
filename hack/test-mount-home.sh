@@ -11,14 +11,15 @@ if [ "$#" -ne 1 ]; then
 fi
 
 NAME="$1"
-hometmp="$HOME/lima-test-tmp"
+hometmp="${HOME_SRC:-$HOME}/lima-test-tmp"
+hometmpdst="${HOME_DST:-$HOME}/lima-test-tmp"
 INFO "Testing home access (\"$hometmp\")"
 rm -rf "$hometmp"
 mkdir -p "$hometmp"
 defer "rm -rf \"$hometmp\""
 echo "random-content-${RANDOM}" >"$hometmp/random"
 expected="$(cat "$hometmp/random")"
-got="$(limactl shell "$NAME" cat "$hometmp/random")"
+got="$(limactl shell "$NAME" cat "$hometmpdst/random")"
 INFO "$hometmp/random: expected=${expected}, got=${got}"
 if [ "$got" != "$expected" ]; then
 	ERROR "Home directory is not shared?"

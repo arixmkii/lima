@@ -13,6 +13,9 @@ fi
 FILE="$1"
 NAME="$(basename -s .yaml "$FILE")"
 
+HOME_SRC=${HOME_SRC:-$HOME}
+HOME_DST=${HOME_DST:-$HOME}
+
 INFO "Validating \"$FILE\""
 limactl validate "$FILE"
 
@@ -93,7 +96,7 @@ esac
 limactl rm -f "${NAME}-tmp"
 
 if [[ -n ${CHECKS["port-forwards"]} ]]; then
-	tmpconfig="$HOME/lima-config-tmp"
+	tmpconfig="$HOME_SRC/lima-config-tmp"
 	mkdir -p "${tmpconfig}"
 	defer "rm -rf \"$tmpconfig\""
 	tmpfile="${tmpconfig}/${NAME}.yaml"
@@ -101,17 +104,21 @@ if [[ -n ${CHECKS["port-forwards"]} ]]; then
 	FILE="${tmpfile}"
 	INFO "Setup port forwarding rules for testing in \"${FILE}\""
 	"${scriptdir}/test-port-forwarding.pl" "${FILE}"
-	limactl validate "$FILE"
+	if [ "$(uname -o)" = "Msys" ]; then
+		limactl validate $(cygpath -w "$FILE")
+	else
+		limactl validate "$FILE"
+	fi
 fi
 
 function diagnose() {
 	NAME="$1"
 	set -x +e
-	tail "$HOME/.lima/${NAME}"/*.log
+	tail "$HOME_SRC/.lima/${NAME}"/*.log
 	limactl shell "$NAME" systemctl --no-pager status
 	limactl shell "$NAME" systemctl --no-pager
 	mkdir -p failure-logs
-	cp -pf "$HOME/.lima/${NAME}"/*.log failure-logs/
+	cp -pf "$HOME_SRC/.lima/${NAME}"/*.log failure-logs/
 	limactl shell "$NAME" sudo cat /var/log/cloud-init-output.log | tee failure-logs/cloud-init-output.log
 	set +x -e
 }
@@ -130,7 +137,11 @@ fi
 
 set -x
 # shellcheck disable=SC2086
-"${LIMACTL_CREATE[@]}" ${LIMACTL_CREATE_ARGS} "$FILE"
+if [ "$(uname -o)" = "Msys" ]; then
+	"${LIMACTL_CREATE[@]}" ${LIMACTL_CREATE_ARGS} $(cygpath -w "$FILE")
+else
+	"${LIMACTL_CREATE[@]}" ${LIMACTL_CREATE_ARGS} "$FILE"
+fi
 set +x
 
 if [[ -n ${CHECKS["mount-path-with-spaces"]} ]]; then
@@ -152,7 +163,7 @@ limactl shell "$NAME" cat /etc/os-release
 set +x
 
 INFO "Testing that host home is not wiped out"
-[ -e "$HOME/.lima" ]
+[ -e "$HOME_SRC/.lima" ]
 
 if [[ -n ${CHECKS["mount-path-with-spaces"]} ]]; then
 	INFO 'Testing that "/tmp/lima test dir with spaces" is not wiped out'
@@ -196,7 +207,9 @@ tmpdir="$(mktemp -d "${TMPDIR:-/tmp}"/lima-test-templates.XXXXXX)"
 defer "rm -rf \"$tmpdir\""
 tmpfile="$tmpdir/lima-hostname"
 rm -f "$tmpfile"
-limactl cp "$NAME":/etc/hostname "$tmpfile"
+wintmpdir="$(cygpath -w / | sed 's_\\_/_g' | sed 's/.$//')"
+mnttmpdir="$(wsl -d lima-infra wslpath $wintmpdir)"
+limactl cp "$NAME":/etc/hostname "$mnttmpdir$tmpfile"
 expected="$(limactl shell "$NAME" cat /etc/hostname)"
 got="$(cat "$tmpfile")"
 INFO "/etc/hostname: expected=${expected}, got=${got}"
@@ -249,7 +262,8 @@ if [[ -n ${CHECKS["container-engine"]} ]]; then
 	limactl shell "$NAME" $CONTAINER_ENGINE rm -f nginx
 	set +x
 	if [[ -n ${CHECKS["mount-home"]} ]]; then
-		hometmp="$HOME/lima-container-engine-test-tmp"
+		hometmp="$HOME_SRC/lima-container-engine-test-tmp"
+		hometmpdst="$HOME_DST/lima-container-engine-test-tmp"
 		# test for https://github.com/lima-vm/lima/issues/187
 		INFO "Testing home bind mount (\"$hometmp\")"
 		rm -rf "$hometmp"
@@ -259,7 +273,7 @@ if [[ -n ${CHECKS["container-engine"]} ]]; then
 		limactl shell "$NAME" $CONTAINER_ENGINE pull --quiet ${alpine_image}
 		echo "random-content-${RANDOM}" >"$hometmp/random"
 		expected="$(cat "$hometmp/random")"
-		got="$(limactl shell "$NAME" $CONTAINER_ENGINE run --rm -v "$hometmp/random":/mnt/foo ${alpine_image} cat /mnt/foo)"
+		got="$(limactl shell "$NAME" $CONTAINER_ENGINE run --rm -v "$hometmpdst/random":/mnt/foo ${alpine_image} cat /mnt/foo)"
 		INFO "$hometmp/random: expected=${expected}, got=${got}"
 		if [ "$got" != "$expected" ]; then
 			ERROR "Home directory is not shared?"
@@ -293,6 +307,9 @@ if [[ -n ${CHECKS["port-forwards"]} ]]; then
 			hostip=$(system_profiler SPNetworkDataType -json | jq -r 'first(.SPNetworkDataType[] | select(.ip_address) | .ip_address) | first')
 		else
 			hostip=$(perl -MSocket -MSys::Hostname -E 'say inet_ntoa(scalar gethostbyname(hostname()))')
+		fi
+		if [ "$(uname -o)" = "Msys" ]; then
+			hostip=$(wsl -d lima-infra ip -4 -o addr show eth0 | awk '{print $4}' | cut -d/ -f1)
 		fi
 		if [ -n "${hostip}" ]; then
 			sudo=""
