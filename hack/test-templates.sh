@@ -377,7 +377,7 @@ if [[ -n ${CHECKS["restart"]} ]]; then
 	fi
 
 	INFO "Stopping \"$NAME\""
-	limactl stop "$NAME"
+	limactl stop "$NAME" || true
 	sleep 3
 
 	if [[ -n ${CHECKS["disk"]} ]]; then
@@ -491,7 +491,7 @@ if [[ $NAME == "fedora" && "$(limactl ls --json "$NAME" | jq -r .vmType)" == "vz
 fi
 
 INFO "Stopping \"$NAME\""
-limactl stop "$NAME"
+limactl stop "$NAME" || true
 sleep 3
 
 INFO "Deleting \"$NAME\""
