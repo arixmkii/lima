@@ -27,6 +27,7 @@ LIMACTL_CREATE=(limactl --tty=false create --cpus=1 --memory=1)
 CONTAINER_ENGINE="nerdctl"
 
 declare -A CHECKS=(
+	["proxy-settings"]="1"
 	["systemd"]="1"
 	["systemd-strict"]="1"
 	["mount-home"]="1"
@@ -73,6 +74,11 @@ case "$NAME" in
 	;;
 "docker")
 	CONTAINER_ENGINE="docker"
+	;;
+"wsl2")
+	CHECKS["systemd"]=
+	CHECKS["proxy-settings"]=
+	CHECKS["port-forwards"]=
 	;;
 esac
 
@@ -192,16 +198,18 @@ if [[ -n ${CHECKS["set-user"]} ]]; then
 	limactl shell "$NAME" grep "^john:x:4711:4711:John Doe:/home/john-john" /etc/passwd
 fi
 
-INFO "Testing proxy settings are imported"
-got=$(limactl shell "$NAME" env | grep FTP_PROXY)
-# Expected: FTP_PROXY is set in addition to ftp_proxy, localhost is replaced
-# by the gateway address, and the value is set immediately without a restart
-gatewayIp=$(limactl shell "$NAME" ip route show 0.0.0.0/0 dev eth0 | cut -d\  -f3)
-expected="FTP_PROXY=http://${gatewayIp}:2121"
-INFO "FTP_PROXY: expected=${expected} got=${got}"
-if [ "$got" != "$expected" ]; then
-	ERROR "proxy environment variable not set to correct value"
-	exit 1
+if [[ -n ${CHECKS["proxy-settings"]} ]]; then
+	INFO "Testing proxy settings are imported"
+	got=$(limactl shell "$NAME" env | grep FTP_PROXY)
+	# Expected: FTP_PROXY is set in addition to ftp_proxy, localhost is replaced
+	# by the gateway address, and the value is set immediately without a restart
+	gatewayIp=$(limactl shell "$NAME" ip route show 0.0.0.0/0 dev eth0 | cut -d\  -f3)
+	expected="FTP_PROXY=http://${gatewayIp}:2121"
+	INFO "FTP_PROXY: expected=${expected} got=${got}"
+	if [ "$got" != "$expected" ]; then
+		ERROR "proxy environment variable not set to correct value"
+		exit 1
+	fi
 fi
 
 INFO "Testing limactl copy command"
@@ -249,19 +257,23 @@ nginx_image="ghcr.io/stargz-containers/nginx:1.19-alpine-org"
 alpine_image="ghcr.io/containerd/alpine:3.14.0"
 
 if [[ -n ${CHECKS["container-engine"]} ]]; then
+	sudo=""
+	if [[ ${NAME} == "wsl2" ]]; then
+		sudo="sudo"
+	fi
 	INFO "Run a nginx container with port forwarding 127.0.0.1:8080"
 	set -x
-	if ! limactl shell "$NAME" $CONTAINER_ENGINE info; then
-		limactl shell "$NAME" sudo cat /var/log/cloud-init-output.log
+	if ! limactl shell "$NAME" $sudo $CONTAINER_ENGINE info; then
+		limactl shell "$NAME" cat /var/log/cloud-init-output.log
 		ERROR "\"${CONTAINER_ENGINE} info\" failed"
 		exit 1
 	fi
-	limactl shell "$NAME" $CONTAINER_ENGINE pull --quiet ${nginx_image}
-	limactl shell "$NAME" $CONTAINER_ENGINE run -d --name nginx -p 127.0.0.1:8080:80 ${nginx_image}
+	limactl shell "$NAME" $sudo $CONTAINER_ENGINE pull --quiet ${nginx_image}
+	limactl shell "$NAME" $sudo $CONTAINER_ENGINE run -d --name nginx -p 127.0.0.1:8080:80 ${nginx_image}
 
 	timeout 3m bash -euxc "until curl -f --retry 30 --retry-connrefused http://127.0.0.1:8080; do sleep 3; done"
 
-	limactl shell "$NAME" $CONTAINER_ENGINE rm -f nginx
+	limactl shell "$NAME" $sudo $CONTAINER_ENGINE rm -f nginx
 	set +x
 	if [[ -n ${CHECKS["mount-home"]} ]]; then
 		hometmp="$HOME_SRC/lima-container-engine-test-tmp"
@@ -272,10 +284,10 @@ if [[ -n ${CHECKS["container-engine"]} ]]; then
 		mkdir -p "$hometmp"
 		defer "rm -rf \"$hometmp\""
 		set -x
-		limactl shell "$NAME" $CONTAINER_ENGINE pull --quiet ${alpine_image}
+		limactl shell "$NAME" $sudo $CONTAINER_ENGINE pull --quiet ${alpine_image}
 		echo "random-content-${RANDOM}" >"$hometmp/random"
 		expected="$(cat "$hometmp/random")"
-		got="$(limactl shell "$NAME" $CONTAINER_ENGINE run --rm -v "$hometmpdst/random":/mnt/foo ${alpine_image} cat /mnt/foo)"
+		got="$(limactl shell "$NAME" $sudo $CONTAINER_ENGINE run --rm -v "$hometmpdst/random":/mnt/foo ${alpine_image} cat /mnt/foo)"
 		INFO "$hometmp/random: expected=${expected}, got=${got}"
 		if [ "$got" != "$expected" ]; then
 			ERROR "Home directory is not shared?"
@@ -300,6 +312,9 @@ if [[ -n ${CHECKS["port-forwards"]} ]]; then
 	if [ "${NAME}" = "opensuse" ]; then
 		limactl shell "$NAME" sudo zypper in -y netcat-openbsd
 	fi
+	if [ "${NAME}" == "wsl2" ]; then
+		limactl shell "$NAME" sudo dnf install -y nc
+	fi
 	"${scriptdir}/test-port-forwarding.pl" "${NAME}"
 
 	if [[ -n ${CHECKS["container-engine"]} || ${NAME} == "alpine"* ]]; then
@@ -323,6 +338,9 @@ if [[ -n ${CHECKS["port-forwards"]} ]]; then
 				limactl shell "$NAME" sudo rc-service containerd start
 				limactl shell "$NAME" sudo tar xzf "${PWD}/nerdctl-full.tgz" -C /usr/local
 				rm nerdctl-full.tgz
+				sudo="sudo"
+			fi
+			if [[ ${NAME} == "wsl2" ]]; then
 				sudo="sudo"
 			fi
 			limactl shell "$NAME" $sudo $CONTAINER_ENGINE info

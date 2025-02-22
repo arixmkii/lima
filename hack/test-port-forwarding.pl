@@ -27,6 +27,8 @@ my $addr = scalar gethostbyname(hostname());
 my $ipv4 = length $addr ? inet_ntoa($addr) : "127.0.0.1";
 my $ipv6 = ""; # todo
 
+$ENV{LIMA_SSH_PORT_FORWARDER} ||= "true";
+
 # macOS GitHub runners seem to use "localhost" as the hostname
 if ($ipv4 eq "127.0.0.1" && $Config{osname} eq "darwin") {
     $ipv4 = qx(system_profiler SPNetworkDataType -json | jq -r 'first(.SPNetworkDataType[] | select(.ip_address) | .ip_address) | first');
@@ -101,6 +103,10 @@ while (<DATA>) {
     /^(forward|ignore):\s+([0-9.:]+)\s+(\d+)(?:\s+→)?(?:\s+([0-9.:]+)(?:\s+(\d+))?)?/;
     die "Cannot parse test '$_'" unless $1;
     my %test; @test{qw(mode guest_ip guest_port host_ip host_port)} = ($1, $2, $3, $4, $5);
+
+    $test{host_ip} ||= "127.0.0.1";
+    $test{host_port} ||= $test{guest_port};
+
     if ($test{mode} eq "forward" && $test{host_port} < 1024 && $Config{osname} ne "darwin") {
         printf "🚧 Not supported on $Config{osname}: # $_\n";
         next;
@@ -109,8 +115,22 @@ while (<DATA>) {
         printf "🚧 Not supported on $Config{osname}: # $_\n";
         next;
     }
-    $test{host_ip} ||= "127.0.0.1";
-    $test{host_port} ||= $test{guest_port};
+    if ($test{guest_ip} eq "192.168.5.15" && $instance eq "wsl2") {
+        printf "🚧 Not supported on $Config{osname} for $instance: # $_\n";
+        next;
+    }
+    if ($test{mode} eq "forward" && $test{guest_ip} eq "0.0.0.0" && $test{host_port} eq $test{guest_port} && $instance eq "wsl2") {
+        printf "🚧 Not supported on $Config{osname} for $instance: # $_\n";
+        next;
+    }
+    if ($test{mode} eq "ignore" && $test{host_ip} eq "127.0.0.1" && $test{guest_ip} eq "127.0.0.1" && $test{host_port} eq $test{guest_port} && $instance eq "wsl2") {
+        printf "🚧 Not supported on $Config{osname} for $instance: # $_\n";
+        next;
+    }
+    if ($test{mode} eq "ignore" && $test{host_ip} eq "127.0.0.1" && $test{guest_ip} eq "0.0.0.0" && $test{host_port} eq $test{guest_port} && $instance eq "wsl2") {
+        printf "🚧 Not supported on $Config{osname} for $instance: # $_\n";
+        next;
+    }
 
     my $remote = JoinHostPort($test{guest_ip},$test{guest_port});
     my $local = JoinHostPort($test{host_ip},$test{host_port});
