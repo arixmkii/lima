@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/lima-vm/lima/pkg/ioutilx"
 	. "github.com/lima-vm/lima/pkg/must"
 	"github.com/lima-vm/lima/pkg/version/versionutil"
 	"github.com/sirupsen/logrus"
@@ -141,7 +142,7 @@ func LimaUser(limaVersion string, warn bool) *user.User {
 				warnings = append(warnings, warning)
 				limaUser.Gid = formatUidGid(gid)
 			}
-			home, err := call([]string{"cygpath", limaUser.HomeDir})
+			home, err := ioutilx.WindowsSubsystemPath(limaUser.HomeDir)
 			if err != nil {
 				logrus.Debug(err)
 			} else {
@@ -156,6 +157,7 @@ func LimaUser(limaVersion string, warn bool) *user.User {
 				home += ".linux"
 			}
 			if !regexPath.MatchString(limaUser.HomeDir) {
+				home = strings.TrimPrefix(home, "/mnt")
 				warning := fmt.Sprintf("local home %q is not a valid Linux path (must match %q); using %q home instead",
 					limaUser.HomeDir, regexPath.String(), home)
 				warnings = append(warnings, warning)

@@ -225,8 +225,11 @@ tmpdir="$(mktemp -d "${TMPDIR:-/tmp}"/lima-test-templates.XXXXXX)"
 defer "rm -rf \"$tmpdir\""
 tmpfile="$tmpdir/lima-hostname"
 rm -f "$tmpfile"
-# TODO support Windows path https://github.com/lima-vm/lima/issues/3215
-limactl cp "$NAME":/etc/hostname "$tmpfile"
+tmpfile_host=$tmpfile
+if [ "${OS_HOST}" = "Msys" ]; then
+	tmpfile_host="$(cygpath -w $tmpfile)"
+fi
+limactl cp "$NAME":/etc/hostname "$tmpfile_host"
 expected="$(limactl shell "$NAME" cat /etc/hostname)"
 got="$(cat "$tmpfile")"
 INFO "/etc/hostname: expected=${expected}, got=${got}"
@@ -332,6 +335,9 @@ if [[ -n ${CHECKS["port-forwards"]} ]]; then
 			hostip=$(system_profiler SPNetworkDataType -json | jq -r 'first(.SPNetworkDataType[] | select(.ip_address) | .ip_address) | first')
 		else
 			hostip=$(perl -MSocket -MSys::Hostname -E 'say inet_ntoa(scalar gethostbyname(hostname()))')
+		fi
+		if [[ "$(uname -o)" = "Msys" && "${LIMA_SSH_PORT_FORWARDER-true}" != "false" ]]; then
+			hostip=$(wsl -d lima-infra ip -4 -o addr show eth0 | awk '{print $4}' | cut -d/ -f1)
 		fi
 		if [ -n "${hostip}" ]; then
 			sudo=""
