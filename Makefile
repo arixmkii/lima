@@ -568,6 +568,46 @@ artifacts-misc: | _artifacts
 
 MKDIR_TARGETS += _artifacts
 
+.PHONY: add-bundles
+add-bundles: add-bundle-wsl add-bundle-git
+
+add-bundle-wsl: _output/bin/bundle-wsl/wsllinks.ini _output/bin/bundle-wsl/sftp-server.ini _output/bin/bundle-wsl/ssh-keygen.ini\
+	_output/bin/bundle-wsl/bzip2.exe\
+	_output/bin/bundle-wsl/cygpath.exe\
+	_output/bin/bundle-wsl/gzip.exe\
+	_output/bin/bundle-wsl/id.exe\
+	_output/bin/bundle-wsl/scp.exe\
+	_output/bin/bundle-wsl/sftp-server.exe\
+	_output/bin/bundle-wsl/ssh.exe\
+	_output/bin/bundle-wsl/ssh-keygen.exe\
+	_output/bin/bundle-wsl/xz.exe\
+	_output/bin/bundle-wsl/zstd.exe
+
+add-bundle-git: _output/bin/bundle-git/wsllinks.ini _output/bin/bundle-git/sftp-server.ini\
+	_output/bin/bundle-git/bzip2.exe\
+	_output/bin/bundle-git/cygpath.exe\
+	_output/bin/bundle-git/gzip.exe\
+	_output/bin/bundle-git/id.exe\
+	_output/bin/bundle-git/scp.exe\
+	_output/bin/bundle-git/sftp-server.exe\
+	_output/bin/bundle-git/ssh.exe\
+	_output/bin/bundle-git/ssh-keygen.exe
+
+_output/bin/bundle-wsl/%.ini: contrib/bundle-wsl/%.ini | _output/bin/bundle-wsl
+	cp -a $< $@
+
+_output/bin/bundle-git/%.ini: contrib/bundle-git/%.ini | _output/bin/bundle-git
+	cp -a $< $@
+
+_output/bin/bundle-wsl/%.exe:
+	cp -a contrib/go-wsllinks.exe $@
+
+_output/bin/bundle-git/%.exe:
+	cp -a contrib/go-wsllinks.exe $@
+
+MKDIR_TARGETS += _output/bin/bundle-wsl
+MKDIR_TARGETS += _output/bin/bundle-git
+
 ################################################################################
 # This target must be placed after any changes to the `MKDIR_TARGETS` variable.
 # It seems that variable expansion in Makefile targets is not done recursively.

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -25,6 +26,28 @@ const (
 )
 
 func main() {
+	if runtime.GOOS == "windows" {
+		bundleDir := strings.TrimSpace(os.Getenv("LIMA_BUNDLED_TOOLS_DIR"))
+		_, err := exec.LookPath("cygpath")
+		if err != nil || bundleDir != "" {
+			if bundleDir == "" {
+				bundleDir = "bundle-wsl"
+			}
+			binary, err := os.Executable()
+			if err == nil {
+				binaryDir := filepath.Dir(binary)
+				extrasDir := filepath.Join(binaryDir, bundleDir)
+				logrus.Infof("Adding bundle directory '%s' to PATH", extrasDir)
+				p := os.Getenv("PATH")
+				err = os.Setenv("PATH", extrasDir+string(filepath.ListSeparator)+p)
+				if err != nil {
+					logrus.Warning("Can't add extras to PATH, relying fully on system PATH")
+				}
+			} else {
+				logrus.Warning("Can't get binary location, relying fully on system PATH")
+			}
+		}
+	}
 	if err := newApp().Execute(); err != nil {
 		handleExitCoder(err)
 		logrus.Fatal(err)
