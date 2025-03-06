@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"runtime"
@@ -98,6 +99,17 @@ func Inspect(instName string) (*Instance, error) {
 	inst.VMType = *y.VMType
 	inst.CPUType = y.CPUType[*y.Arch]
 	inst.SSHAddress = "127.0.0.1"
+	if runtime.GOOS == "windows" && inst.VMType == limayaml.QEMU {
+		mode, err := call([]string{"wsl", "-d", "lima-infra", "wslinfo", "--networking-mode"})
+		if err == nil && mode == "nat" {
+			addr, err := call([]string{"wsl", "-d", "lima-infra", "bash", "-c", "ip route show | grep -i default | awk '{print \\$3}'"})
+			if err == nil {
+				inst.SSHAddress = addr
+			} else {
+				return nil, err
+			}
+		}
+	}
 	inst.SSHLocalPort = *y.SSH.LocalPort // maybe 0
 	inst.SSHConfigFile = filepath.Join(instDir, filenames.SSHConfig)
 	inst.HostAgentPID, err = ReadPIDFile(filepath.Join(instDir, filenames.HostAgentPID))
@@ -183,6 +195,15 @@ func Inspect(instName string) (*Instance, error) {
 	}
 	inst.Param = y.Param
 	return inst, nil
+}
+
+func call(args []string) (string, error) {
+	cmd := exec.Command(args[0], args[1:]...)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 func inspectStatusWithPIDFiles(instDir string, inst *Instance, y *limayaml.LimaYAML) {

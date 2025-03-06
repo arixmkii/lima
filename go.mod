@@ -56,6 +56,10 @@ require (
 	k8s.io/client-go v0.32.2
 )
 
+replace (
+	github.com/lima-vm/sshocker v0.3.5 => ../sshocker
+)
+
 require (
 	github.com/Code-Hex/go-infinity-channel v1.0.0 // indirect
 	github.com/VividCortex/ewma v1.2.0 // indirect
