@@ -97,6 +97,9 @@ case "$NAME" in
 	;;
 esac
 
+# FIXME
+CHECKS["port-forwards"]=
+
 if limactl ls -q | grep -q "$NAME"; then
 	ERROR "Instance $NAME already exists"
 	exit 1
@@ -343,6 +346,9 @@ if [[ -n ${CHECKS["port-forwards"]} ]]; then
 			hostip=$(system_profiler SPNetworkDataType -json | jq -r 'first(.SPNetworkDataType[] | select(.ip_address) | .ip_address) | first')
 		else
 			hostip=$(perl -MSocket -MSys::Hostname -E 'say inet_ntoa(scalar gethostbyname(hostname()))')
+		fi
+		if [[ "$(uname -o)" = "Msys" && "${LIMA_SSH_PORT_FORWARDER-true}" != "false" ]]; then
+			hostip=$(wsl -d lima-infra ip -4 -o addr show eth0 | awk '{print $4}' | cut -d/ -f1)
 		fi
 		if [ -n "${hostip}" ]; then
 			sudo=""
