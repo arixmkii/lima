@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -135,7 +136,11 @@ func New(instName string, stdout io.Writer, signalCh chan os.Signal, opts ...Opt
 		vSockPort = port
 	} else if *inst.Config.VMType == limayaml.QEMU {
 		// virtserialport doesn't seem to work reliably: https://github.com/lima-vm/lima/issues/2064
-		virtioPort = "" // filenames.VirtioPort
+		if runtime.GOOS != "windows" {
+			virtioPort = "" // filenames.VirtioPort
+		} else {
+			virtioPort = filenames.VirtioPort
+		}
 	}
 
 	if err := cidata.GenerateCloudConfig(inst.Dir, instName, inst.Config); err != nil {

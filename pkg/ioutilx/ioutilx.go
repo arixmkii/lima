@@ -66,3 +66,13 @@ func WindowsSubsystemPathForLinux(orig, distro string) (string, error) {
 	}
 	return strings.TrimSpace(string(out)), nil
 }
+
+func IsLocalWindowsFS() (bool, error) {
+	out, err := exec.Command("cygpath", "-w", "/").CombinedOutput()
+	if err != nil {
+		logrus.WithError(err).Errorf("failed to convert path to Windows, maybe not using Git ssh?")
+		return false, err
+	}
+	res := strings.TrimSpace(string(out))
+	return len(filepath.VolumeName(res)) == 2 && res != "\\\\", nil
+}
