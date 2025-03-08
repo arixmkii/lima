@@ -7,7 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
+	"runtime"
 
+	"github.com/lima-vm/lima/pkg/ioutilx"
 	"github.com/lima-vm/lima/pkg/limayaml"
 	"github.com/lima-vm/lima/pkg/localpathutil"
 	"github.com/lima-vm/sshocker/pkg/reversesshfs"
@@ -39,13 +42,28 @@ func (a *HostAgent) setupMount(m limayaml.Mount) (*mount, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := os.MkdirAll(location, 0o755); err != nil {
+		return nil, err
+	}
+	if runtime.GOOS == "windows" && !path.IsAbs(location) {
+		location, err = ioutilx.WindowsSubsystemPath(location)
+		if err != nil {
+			return nil, err
+		}
+	}
 
-	mountPoint, err := localpathutil.Expand(*m.MountPoint)
+	mountPoint := *m.MountPoint
+	if !path.IsAbs(mountPoint) {
+		mountPoint, err = localpathutil.Expand(mountPoint)
+	}
 	if err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(location, 0o755); err != nil {
-		return nil, err
+	if runtime.GOOS == "windows" && !path.IsAbs(mountPoint) {
+		mountPoint, err = ioutilx.WindowsSubsystemPath(mountPoint)
+		if err != nil {
+			return nil, err
+		}
 	}
 	// NOTE: allow_other requires "user_allow_other" in /etc/fuse.conf
 	sshfsOptions := "allow_other"

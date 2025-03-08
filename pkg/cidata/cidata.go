@@ -13,6 +13,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/docker/go-units"
 	"github.com/lima-vm/lima/pkg/debugutil"
 	"github.com/lima-vm/lima/pkg/identifierutil"
+	"github.com/lima-vm/lima/pkg/ioutilx"
 	"github.com/lima-vm/lima/pkg/iso9660util"
 	"github.com/lima-vm/lima/pkg/limayaml"
 	"github.com/lima-vm/lima/pkg/localpathutil"
@@ -204,9 +206,19 @@ func templateArgs(bootScripts bool, instDir, name string, instConfig *limayaml.L
 		if err != nil {
 			return nil, err
 		}
-		mountPoint, err := localpathutil.Expand(*f.MountPoint)
+
+		mountPoint := *f.MountPoint
+		if !path.IsAbs(mountPoint) {
+			mountPoint, err = localpathutil.Expand(mountPoint)
+		}
 		if err != nil {
 			return nil, err
+		}
+		if runtime.GOOS == "windows" && !path.IsAbs(mountPoint) {
+			mountPoint, err = ioutilx.WindowsSubsystemPath(mountPoint)
+			if err != nil {
+				return nil, err
+			}
 		}
 		options := "defaults"
 		switch fstype {
