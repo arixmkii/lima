@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -288,6 +289,11 @@ func SSHOpts(sshPath, instDir, username string, useDotSSH, forwardAgent, forward
 		controlSock, err = ioutilx.WindowsSubsystemPath(controlSock)
 		if err != nil {
 			return nil, err
+		}
+		localFS, err := ioutilx.IsLocalWindowsFS()
+		if err == nil && !localFS {
+			controlSock = strings.ReplaceAll(controlSock, "/", "_")
+			controlSock = path.Join("/var/opt/lima", strings.TrimPrefix(controlSock, "_mnt_"))
 		}
 		controlPath = fmt.Sprintf(`ControlPath='%s'`, controlSock)
 	}
