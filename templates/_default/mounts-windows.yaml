@@ -1,0 +1,5 @@
+mounts:
+- location: "~"
+- location: "C:\\Temp\\lima"
+  mountPoint: /tmp/lima
+  writable: true
